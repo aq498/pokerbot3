@@ -1770,14 +1770,27 @@ async def main():
     bot_task = asyncio.create_task(bot.run_forever())
     ping_task = asyncio.create_task(self_ping_loop())
 
-    print(f"[Main] Bot started with {CPU_WORKERS} CPU workers. Press Ctrl+C to exit.")
+    print(f"[Main] Bot started with {CPU_WORKERS} CPU workers. Waiting for shutdown...")
     
-    done, pending = await asyncio.wait(
-        [bot_task, ping_task, asyncio.create_task(stop_event.wait())],
-        return_when=asyncio.FIRST_COMPLETED
-    )
+    # This loop ignores crashes. If a task dies, it restarts it. 
+    # It ONLY exits when GitHub sends a SIGTERM (at 5h 45m).
+    while not stop_event.is_set():
+        await asyncio.sleep(1)
+        
+        if bot_task.done():
+            print("[Fatal] Bot task crashed! Restarting in 5 seconds...")
+            if bot_task.exception():
+                print(f"Reason: {bot_task.exception()}")
+            await asyncio.sleep(5)
+            bot_task = asyncio.create_task(bot.run_forever())
+            
+        if ping_task.done():
+            print("[Fatal] Ping task crashed! Restarting...")
+            if ping_task.exception():
+                print(f"Reason: {ping_task.exception()}")
+            ping_task = asyncio.create_task(self_ping_loop())
 
-    print("\n[Shutdown] Signal received or task finished. Cleaning up...")
+    print("\n[Shutdown] SIGTERM or Ctrl+C received. Cleaning up...")
     
     bot_task.cancel()
     ping_task.cancel()
@@ -1786,13 +1799,3 @@ async def main():
     bot.tracker.flush_to_sqlite()
     pool.shutdown(wait=False, cancel_futures=True)
     print("[Shutdown] Clean exit complete.")
-
-
-if __name__ == "__main__":
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        print("\n[Shutdown] Bot stopped cleanly.")
