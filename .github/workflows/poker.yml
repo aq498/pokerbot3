@@ -1,0 +1,57 @@
+name: Poker Bot Runner
+
+on:
+  schedule:
+    # Runs every 5 hours (leaves 1 hour buffer before GitHub's 6-hour hard kill)
+    - cron: "0 */5 * * *"
+  workflow_dispatch: # Allows manual trigger from the Actions tab
+
+# If a new run starts, gracefully cancel the old one
+concurrency:
+  group: poker-bot-group
+  cancel-in-progress: true
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340 # 5 hours 40 mins. GitHub sends SIGTERM 5 mins before timeout.
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip' # Caches dependencies
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore Opponent Database
+        uses: actions/cache/restore@v4
+        with:
+          path: opponent_memory.db
+          key: poker-db-${{ github.run_id }}
+          restore-keys: |
+            poker-db-
+
+      - name: Run Bot
+        env:
+          OPEN_POKER_API_KEY: ${{ secrets.OPEN_POKER_API_KEY }}
+          # These are already set in Python, but setting them in ENV ensures they apply to C-level
+          MALLOC_TRIM_THRESHOLD_: "65536"
+          MALLOC_MMAP_THRESHOLD_: "65536"
+          PYTHONMALLOC: "malloc"
+          CPU_WORKERS: "4"
+          MC_MAX_ITERS: "200000"
+        run: python bot5.py
+        # If this times out, GitHub sends SIGTERM. Our Python code catches it, flushes DB, and exits.
+
+      - name: Save Opponent Database
+        if: always() # Save DB even if the run failed or timed out
+        uses: actions/cache/save@v4
+        with:
+          path: opponent_memory.db
+          key: poker-db-${{ github.run_id }}
