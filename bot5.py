@@ -1165,16 +1165,35 @@ async def main():
     await start_render_server(bot)
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
+    
+    # The Hard Kill Handler
     def handle_signal(sig, frame):
-        print(f"\n[Signal] Caught {sig}. Stopping...", flush=True)
-        loop.call_soon_threadsafe(stop_event.set)
+        print(f"\n[Signal] Caught {sig}. Hard killing...", flush=True)
+        
+        # 1. Force flush the DB so we don't lose opponent stats
+        try:
+            bot.tracker.flush_to_sqlite()
+        except Exception:
+            pass
+            
+        # 2. Force kill the child processes
+        try:
+            pool.shutdown(wait=False, cancel_futures=True)
+            for p in mp.active_children():
+                p.terminate()
+        except Exception:
+            pass
+            
+        # 3. Instantly kill the main python process. 
+        # This drops the TCP socket immediately, so OpenPoker sees you disconnect.
+        os._exit(0)
+
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
-    
+
     print("[CANARY] Starting tasks...", flush=True)
     bot_task = asyncio.create_task(bot.run_forever())
     ping_task = asyncio.create_task(self_ping_loop())
-    
     print(f"[Main] Bot started with {CPU_WORKERS} CPU workers. Waiting for shutdown...", flush=True)
     
     while not stop_event.is_set():
