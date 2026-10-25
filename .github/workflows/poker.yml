@@ -39,6 +39,7 @@ jobs:
 
       - name: Run Bot
         env:
+          PYTHONUNBUFFERED: "1"
           OPEN_POKER_API_KEY: ${{ secrets.OPEN_POKER_API_KEY }}
           MALLOC_TRIM_THRESHOLD_: "65536"
           MALLOC_MMAP_THRESHOLD_: "65536"
