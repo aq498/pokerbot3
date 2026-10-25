@@ -1139,7 +1139,13 @@ async def start_render_server(bot: OpenPokerClientV5):
     print(f"[Server] Health dashboard listening on http://0.0.0.0:{PORT}", flush=True)
 
 async def self_ping_loop():
-    if os.getenv("GITHUB_ACTIONS") == "true": return
+    # If on GitHub Actions, just sleep forever instead of returning.
+    # This prevents the "Ping task crashed" loop.
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        while True:
+            await asyncio.sleep(3600)
+        return
+
     await asyncio.sleep(15)
     target_url = f"{RENDER_EXTERNAL_URL.rstrip('/')}/health" if RENDER_EXTERNAL_URL else f"http://127.0.0.1:{PORT}/health"
     async with aiohttp.ClientSession() as session:
@@ -1164,21 +1170,27 @@ async def main():
         loop.call_soon_threadsafe(stop_event.set)
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
+    
     print("[CANARY] Starting tasks...", flush=True)
     bot_task = asyncio.create_task(bot.run_forever())
     ping_task = asyncio.create_task(self_ping_loop())
+    
     print(f"[Main] Bot started with {CPU_WORKERS} CPU workers. Waiting for shutdown...", flush=True)
+    
     while not stop_event.is_set():
         await asyncio.sleep(1)
+        
         if bot_task.done():
             print("[Fatal] Bot task crashed! Restarting in 5 seconds...", flush=True)
             if bot_task.exception(): print(f"Reason: {bot_task.exception()}", flush=True)
             await asyncio.sleep(5)
             bot_task = asyncio.create_task(bot.run_forever())
+            
         if ping_task.done():
             print("[Fatal] Ping task crashed! Restarting...", flush=True)
             if ping_task.exception(): print(f"Reason: {ping_task.exception()}", flush=True)
             ping_task = asyncio.create_task(self_ping_loop())
+            
     print("\n[Shutdown] SIGTERM or Ctrl+C received. Cleaning up...", flush=True)
     bot_task.cancel()
     ping_task.cancel()
