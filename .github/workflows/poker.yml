@@ -1,35 +1,32 @@
-name: Poker Bot Runner nya '-'
+name: OpenPoker Bot 24/7
 
 on:
-  schedule:
-    # Runs at minute 0 of every 6th hour (e.g., 00:00, 06:00, 12:00, 18:00)
-    - cron: "0 */6 * * *"
-  workflow_dispatch: # Allows manual trigger from the Actions tab
+  workflow_dispatch: # Only manual trigger and self-trigger
 
-# Prevent the "instant cancel" bug.
-# If a job is running, the new one will wait in the queue instead of killing the old one.
+permissions:
+  actions: write
+  contents: read
+
 concurrency:
-  group: poker-bot-group
+  group: openpoker-bot
   cancel-in-progress: false
 
 jobs:
-  run-bot:
+  play-poker:
     runs-on: ubuntu-latest
-    # 5 hours 40 mins. GitHub sends SIGTERM 5 mins before this limit (at 5h 35m).
-    # This leaves a 25-minute gap before the next cron triggers at the 6-hour mark.
-    timeout-minutes: 340
-    
+    timeout-minutes: 350 # 5 hours 50 mins (Hard cap is 6 hours)
+
     steps:
-      - name: Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: 'pip' # Caches dependencies to speed up startup
+          python-version: '3.12'
+          cache: 'pip'
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Restore Opponent Database
@@ -48,13 +45,17 @@ jobs:
           PYTHONMALLOC: "malloc"
           CPU_WORKERS: "4"
           MC_MAX_ITERS: "200000"
-        run: python bot5.py
-        # When timeout-minutes hits 340, GitHub sends SIGTERM. 
-        # Our Python code catches it, flushes SQLite to disk, and exits.
+        run: python -u bot5.py
 
       - name: Save Opponent Database
-        if: always() # Save DB even if the run failed, timed out, or was cancelled
+        if: always()
         uses: actions/cache/save@v4
         with:
           path: opponent_memory.db
           key: poker-db-${{ github.run_id }}
+
+      - name: Trigger Next Run
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run "OpenPoker Bot 24/7"
