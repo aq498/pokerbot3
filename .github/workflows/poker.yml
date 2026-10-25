@@ -1,7 +1,7 @@
 name: OpenPoker Bot 24/7
 
 on:
-  workflow_dispatch: # Only manual trigger and self-trigger
+  workflow_dispatch: # Manual trigger and self-trigger only
 
 permissions:
   actions: write
@@ -14,7 +14,7 @@ concurrency:
 jobs:
   play-poker:
     runs-on: ubuntu-latest
-    timeout-minutes: 350 # 5 hours 50 mins (Hard cap is 6 hours)
+    timeout-minutes: 350 # 5 hours 50 mins (under the 6h hard cap)
 
     steps:
       - name: Checkout code
@@ -56,7 +56,12 @@ jobs:
           key: poker-db-${{ github.run_id }}
 
       - name: Trigger Next Run
+        # Only trigger if the current run was a success, and add a small delay
+        # to prevent an infinite loop if the bot crashes instantly.
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run "OpenPoker Bot 24/7"
+        run: |
+          echo "Chaining next run..."
+          sleep 10
+          gh workflow run "OpenPoker Bot 24/7"
