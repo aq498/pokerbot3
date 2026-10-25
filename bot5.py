@@ -1,3 +1,5 @@
+import sys
+print("CANARY: Script started!", flush=True)
 import os
 import sys
 import signal
@@ -1749,48 +1751,55 @@ async def self_ping_loop():
             await asyncio.sleep(600)
 
 
+import threading
+
 async def main():
+    print("[CANARY] Main function started...", flush=True)
+    
     pool_kwargs = {"max_workers": CPU_WORKERS, "initializer": _init_worker}
     if "max_tasks_per_child" in inspect.signature(ProcessPoolExecutor).parameters:
         pool_kwargs["max_tasks_per_child"] = 200
     pool = ProcessPoolExecutor(**pool_kwargs)
     
     bot = OpenPokerClientV5(api_key=API_KEY, ws_url=WS_URL, pool=pool)
+    
+    print("[CANARY] Starting web server...", flush=True)
     await start_render_server(bot)
 
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, stop_event.set)
-        except NotImplementedError:
-            signal.signal(sig, lambda s, f: loop.call_soon_threadsafe(stop_event.set))
+    # SAFE SIGNAL HANDLING (Avoids the asyncio crash)
+    def handle_signal(sig, frame):
+        print(f"\n[Signal] Caught {sig}. Stopping...", flush=True)
+        loop.call_soon_threadsafe(stop_event.set)
+        
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
 
+    print("[CANARY] Starting tasks...", flush=True)
     bot_task = asyncio.create_task(bot.run_forever())
     ping_task = asyncio.create_task(self_ping_loop())
 
-    print(f"[Main] Bot started with {CPU_WORKERS} CPU workers. Waiting for shutdown...")
+    print(f"[Main] Bot started with {CPU_WORKERS} CPU workers. Waiting for shutdown...", flush=True)
     
-    # This loop ignores crashes. If a task dies, it restarts it. 
-    # It ONLY exits when GitHub sends a SIGTERM (at 5h 45m).
     while not stop_event.is_set():
         await asyncio.sleep(1)
         
         if bot_task.done():
-            print("[Fatal] Bot task crashed! Restarting in 5 seconds...")
+            print("[Fatal] Bot task crashed! Restarting in 5 seconds...", flush=True)
             if bot_task.exception():
-                print(f"Reason: {bot_task.exception()}")
+                print(f"Reason: {bot_task.exception()}", flush=True)
             await asyncio.sleep(5)
             bot_task = asyncio.create_task(bot.run_forever())
             
         if ping_task.done():
-            print("[Fatal] Ping task crashed! Restarting...")
+            print("[Fatal] Ping task crashed! Restarting...", flush=True)
             if ping_task.exception():
-                print(f"Reason: {ping_task.exception()}")
+                print(f"Reason: {ping_task.exception()}", flush=True)
             ping_task = asyncio.create_task(self_ping_loop())
 
-    print("\n[Shutdown] SIGTERM or Ctrl+C received. Cleaning up...")
+    print("\n[Shutdown] SIGTERM or Ctrl+C received. Cleaning up...", flush=True)
     
     bot_task.cancel()
     ping_task.cancel()
@@ -1798,4 +1807,4 @@ async def main():
 
     bot.tracker.flush_to_sqlite()
     pool.shutdown(wait=False, cancel_futures=True)
-    print("[Shutdown] Clean exit complete.")
+    print("[Shutdown] Clean exit complete.", flush=True)
